@@ -1,0 +1,39 @@
+# Render 배포 설정 (Blueprint)
+# Render 대시보드에서 이 저장소를 연결하면 아래 설정대로 웹 서비스가 만들어진다.
+# sync: false 인 값은 저장소에 담기지 않고 Render 대시보드에서 직접 입력해야 하는 비밀값이다.
+services:
+  - type: web
+    name: second-review-error-dashboard
+    runtime: node
+    plan: free # 무료 플랜은 15분 미사용 시 잠들고 첫 접속이 40~60초 걸린다. 상시 응답이 필요하면 starter 로 변경.
+    region: singapore # 한국에서 가장 가까운 리전
+    buildCommand: npm install # package-lock.json 이 없으므로 npm ci 대신 install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # --- 슬랙 (비밀값: 대시보드에서 입력) ---
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        value: C02CT82KYP8
+      # --- 구글 로그인 (비밀값: 대시보드에서 입력) ---
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true # Render 가 임의의 긴 문자열을 만들어 넣는다
+      # --- 열람 허용목록 (사람 추가/삭제는 이 값만 수정) ---
+      - key: ALLOWED_EMAILS
+        sync: false
+      - key: ALLOWED_DOMAINS
+        sync: false
+      # --- 배포 주소 (구글 콜백 URL 계산에 사용. 예: https://xxx.onrender.com) ---
+      - key: BASE_URL
+        sync: false
+      - key: CACHE_TTL_SEC
+        value: "60"
+      - key: SESSION_HOURS
+        value: "12"

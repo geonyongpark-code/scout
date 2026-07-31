@@ -1,0 +1,17 @@
+{
+  "name": "second-review-error-dashboard",
+  "version": "0.1.0",
+  "description": "2차검수 오류 분석 실시간 공유 웹앱 (슬랙 수정요청 채널 집계)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5"
+  }
+}

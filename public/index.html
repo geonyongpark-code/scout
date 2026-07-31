@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2차검수 오류 분석</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    /* 순차(sequential) 단일 색상 램프 — 히트맵 전용. 밝음=적음 → 어두움=많음 */
+    --seq-1:#cde2fb; --seq-2:#9ec5f4; --seq-3:#6da7ec; --seq-4:#3987e5; --seq-5:#256abf; --seq-6:#184f95;
+    --ink:#1c1e21; --ink-2:#65676b; --ink-3:#8a8d91;
+    --surface:#fff; --page:#f5f6f8; --line:#e4e6eb; --line-2:#eff1f3;
+    --accent:#1877f2;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--page); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Malgun Gothic","Apple SD Gothic Neo",sans-serif; font-size:14px; }
+  .wrap { max-width:1160px; margin:0 auto; padding:20px 18px 60px; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  .sub { color:var(--ink-2); font-size:12.5px; margin-bottom:16px; }
+  .sub a { color:var(--accent); text-decoration:none; }
+  .bar-cfg { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:12px 16px; margin-bottom:16px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  .bar-cfg input, .bar-cfg select { padding:6px 8px; border:1px solid #ccd0d5; border-radius:6px; font-size:13px; }
+  .bar-cfg button { padding:7px 14px; border:none; border-radius:6px; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; font-size:13px; }
+  .bar-cfg button.ghost { background:var(--surface); color:var(--accent); border:1px solid #cddbf0; font-weight:600; }
+  .quick { display:flex; gap:6px; }
+  .quick a { font-size:12px; color:var(--accent); cursor:pointer; padding:4px 8px; border:1px solid #dfe3e8; border-radius:6px; }
+  .quick a.on { background:#eaf1ff; border-color:#c3d6f7; }
+  .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+  @media (max-width:720px){ .cards{ grid-template-columns:repeat(2,1fr);} }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .card .k { font-size:12px; color:var(--ink-2); }
+  .card .v { font-size:26px; font-weight:700; margin-top:2px; }
+  .card .n { font-size:11.5px; color:var(--ink-3); margin-top:2px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:820px){ .grid2{ grid-template-columns:1fr;} }
+  .panel { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:16px; }
+  .panel h3 { margin:0 0 10px; font-size:14px; display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; }
+  .chart-box { position:relative; height:280px; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:8px 10px; font-size:13px; border-bottom:1px solid var(--line-2); }
+  th { color:#4b4d52; font-weight:600; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pill { font-size:11px; padding:1px 7px; border-radius:10px; font-weight:600; white-space:nowrap; }
+  .pill.m { background:#eaf1ff; color:var(--accent); } .pill.c { background:#f0eaff; color:#7a3ff2; }
+  .muted { color:var(--ink-3); font-size:12px; font-weight:400; }
+  .err { color:#c0392b; background:#fdecea; padding:12px; border-radius:8px; }
+  .snap { background:#fff8e6; border:1px solid #f3e2b3; color:#6b5518; font-size:12.5px; padding:9px 14px; border-radius:8px; margin-bottom:12px; }
+  .empty { color:var(--ink-3); font-size:13px; padding:22px 4px; text-align:center; }
+  tr.pick { cursor:pointer; } tr.pick:hover { background:#f7f9fc; }
+
+  /* ---- 히트맵 (검수자 × 항목) ---- */
+  .hm-cfg { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin-bottom:10px; }
+  .hm-cfg select { padding:5px 8px; border:1px solid #ccd0d5; border-radius:6px; font-size:12.5px; }
+  .legend { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-2); }
+  .legend .sw { display:flex; gap:2px; }
+  .legend .sw i { width:18px; height:11px; border-radius:2px; display:block; }
+  .hm-scroll { overflow-x:auto; padding-bottom:4px; }
+  table.hm { border-collapse:separate; border-spacing:2px; width:auto; min-width:100%; }
+  table.hm th, table.hm td { border:none; padding:0; font-size:12px; }
+  table.hm thead th { font-weight:600; color:#4b4d52; font-size:11.5px; line-height:1.25; vertical-align:bottom;
+    width:80px; min-width:80px; max-width:80px; padding:0 3px 6px; text-align:center; word-break:keep-all; cursor:pointer; }
+  table.hm thead th:hover { color:var(--accent); }
+  table.hm th.corner, table.hm th.rowh { position:sticky; left:0; z-index:2; background:var(--surface); }
+  table.hm th.corner { width:132px; min-width:132px; text-align:left; padding-left:2px; cursor:default; }
+  table.hm th.rowh { text-align:left; font-weight:600; font-size:12.5px; padding:0 10px 0 2px; white-space:nowrap; cursor:pointer; }
+  table.hm th.rowh:hover { color:var(--accent); }
+  table.hm td.cell { text-align:center; height:30px; border-radius:3px; font-variant-numeric:tabular-nums; font-weight:600;
+    background:#f7f8fa; color:var(--ink-3); cursor:pointer; }
+  table.hm td.cell.z { background:var(--page); color:#c8cbd0; cursor:default; }
+  table.hm td.cell:not(.z):hover { outline:2px solid var(--ink); outline-offset:-2px; }
+  table.hm td.tot, table.hm th.tot { background:var(--surface); color:var(--ink); font-weight:700; text-align:center;
+    font-variant-numeric:tabular-nums; border-top:1px solid var(--line); border-left:1px solid var(--line); border-radius:0; }
+  table.hm th.tot { border:none; border-bottom:1px solid var(--line); font-weight:600; color:#4b4d52; }
+  table.hm th.rowh.sum { color:var(--ink); cursor:default; border-top:1px solid var(--line); }
+  table.hm th.rowh.sum:hover { color:var(--ink); }
+
+  /* ---- 드릴다운 ---- */
+  .drill-cfg { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  .drill-cfg select, .drill-cfg input { padding:6px 8px; border:1px solid #ccd0d5; border-radius:6px; font-size:12.5px; max-width:200px; }
+  .drill-cfg button { padding:6px 12px; border-radius:6px; font-size:12.5px; cursor:pointer; border:1px solid #cddbf0; background:var(--surface); color:var(--accent); font-weight:600; }
+  .drill-wrap { max-height:520px; overflow:auto; border:1px solid var(--line-2); border-radius:8px; }
+  .drill-wrap table { min-width:760px; }
+  .drill-wrap thead th { position:sticky; top:0; background:#fafbfc; z-index:1; cursor:pointer; white-space:nowrap; }
+  .drill-wrap thead th:hover { color:var(--accent); }
+  .drill-wrap thead th .ar { color:var(--accent); }
+  td.uid { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  td.dt { white-space:nowrap; font-variant-numeric:tabular-nums; }
+  td.reason { color:#3a3d42; }
+  .more { text-align:center; padding:10px; }
+  .more button { padding:6px 14px; border:1px solid #dfe3e8; background:var(--surface); border-radius:6px; font-size:12.5px; cursor:pointer; color:var(--accent); font-weight:600; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { font-size:11.5px; background:#eaf1ff; color:#12549f; border-radius:11px; padding:2px 8px 2px 9px; display:inline-flex; gap:5px; align-items:center; }
+  .chip b { font-weight:600; }
+  .chip span { cursor:pointer; color:#5b7fae; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>2차검수 오류 분석</h1>
+  <div class="sub" id="sub">슬랙 #카탈로그n세일운영-수정요청 채널 실시간 집계<span id="who"></span></div>
+
+  <div id="banner"></div>
+
+  <div class="bar-cfg">
+    <label>기간 <input type="date" id="from"> ~ <input type="date" id="to"></label>
+    <div class="quick">
+      <a data-q="today">오늘</a><a data-q="7">최근 7일</a><a data-q="30">최근 30일</a><a data-q="all" id="qAll" hidden>전체</a>
+    </div>
+    <button id="run">조회</button>
+    <button id="refresh" class="ghost" title="서버 캐시를 무시하고 슬랙에서 다시 읽어옵니다">새로고침</button>
+    <span class="muted" id="status"></span>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="k">총 오류 상품수</div><div class="v" id="c-total">-</div><div class="n" id="n-total"></div></div>
+    <div class="card"><div class="k">메시지 수</div><div class="v" id="c-msgs">-</div><div class="n" id="n-msgs"></div></div>
+    <div class="card"><div class="k">무신사</div><div class="v" id="c-m">-</div><div class="n" id="n-m"></div></div>
+    <div class="card"><div class="k">29cm</div><div class="v" id="c-c">-</div><div class="n" id="n-c"></div></div>
+  </div>
+
+  <div class="panel"><h3>일자별 오류 추이</h3><div class="chart-box"><canvas id="chartDate"></canvas></div></div>
+
+  <div class="grid2">
+    <div class="panel"><h3>1차검수자별 오류량 <span class="muted">막대 클릭 → 원본 목록</span></h3><div class="chart-box"><canvas id="chartRev"></canvas></div></div>
+    <div class="panel"><h3>오류 항목별 빈도 <span class="muted">막대 클릭 → 원본 목록</span> <span class="muted" id="catNote"></span></h3><div class="chart-box"><canvas id="chartCat"></canvas></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><h3>1차검수자별 상세</h3><div id="tblRev"></div></div>
+    <div class="panel"><h3>오류 항목별 상세</h3><div id="tblCat"></div></div>
+  </div>
+
+  <!-- 6. 검수자 × 항목 교차 -->
+  <div class="panel" id="crossPanel">
+    <h3>검수자 × 항목 교차 <span class="muted">셀·검수자·항목을 클릭하면 아래 원본 목록이 필터됩니다</span></h3>
+    <div class="hm-cfg">
+      <label class="muted">표시
+        <select id="hmMode">
+          <option value="cnt">건수</option>
+          <option value="rowpct">검수자별 비중(%)</option>
+          <option value="colpct">항목별 비중(%)</option>
+        </select>
+      </label>
+      <label class="muted">검수자
+        <select id="hmTop">
+          <option value="12">상위 12명</option>
+          <option value="20">상위 20명</option>
+          <option value="0">전체</option>
+        </select>
+      </label>
+      <div class="legend">
+        <span id="hmLegendLo">적음</span>
+        <span class="sw" id="hmSwatch"></span>
+        <span id="hmLegendHi">많음</span>
+      </div>
+    </div>
+    <div class="hm-scroll" id="heatmap"></div>
+  </div>
+
+  <!-- 7. 원본 드릴다운 -->
+  <div class="panel" id="drillPanel">
+    <h3>원본 드릴다운 <span class="muted">UID · 수정사유 원본</span></h3>
+    <div class="drill-cfg">
+      <select id="fRev"></select>
+      <select id="fCat"></select>
+      <select id="fPlat">
+        <option value="">플랫폼 전체</option><option value="무신사">무신사</option><option value="29cm">29cm</option>
+      </select>
+      <input id="fQ" type="search" placeholder="UID · 사유 검색">
+      <button id="fReset">필터 초기화</button>
+      <button id="csv">CSV 내려받기</button>
+      <span class="muted" id="drillCount"></span>
+    </div>
+    <div class="chips" id="drillChips"></div>
+    <div class="drill-wrap"><div id="drillTbl"></div></div>
+  </div>
+
+  <div id="errBox"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const fmt = (n) => Number(n || 0).toLocaleString();
+function todayKST(){ return new Date(Date.now()+9*3600*1000).toISOString().slice(0,10); }
+function addDays(d,n){ const x=new Date(d+"T00:00:00+09:00"); x.setDate(x.getDate()+n); return new Date(x.getTime()+9*3600*1000).toISOString().slice(0,10); }
+
+// 순차 램프 (밝음=적음 → 어두움=많음). 마지막 두 단계는 흰 글씨.
+const RAMP = ["#cde2fb","#9ec5f4","#6da7ec","#3987e5","#256abf","#184f95"];
+// 각 단계 배경에서 4.5:1 이상을 확보하는 글자색 (밝은 4단계는 짙은 잉크, 어두운 2단계는 흰색)
+const RAMP_INK = ["#1c1e21","#1c1e21","#1c1e21","#0b1220","#fff","#fff"];
+function rampIndex(v, max){
+  if (!(v > 0) || !(max > 0)) return -1;
+  // 제곱근 스케일: 한 명에게 몰린 분포에서도 낮은 값이 구분된다
+  return Math.min(RAMP.length - 1, Math.floor(Math.sqrt(v / max) * RAMP.length));
+}
+
+// 정적 대시보드(GitHub Pages)에서는 window.EMBEDDED 에 스냅샷이 박혀 있고 서버 호출을 하지 않는다.
+// 서버 모드(/api/errors)와 정적 모드가 같은 화면 코드를 공유한다.
+const EMBEDDED = window.EMBEDDED || null;
+
+// 정적 모드: 박혀 있는 원본 행(drill)에서 서버 응답과 동일한 형태를 다시 만든다
+function aggregateLocal(from, to){
+  const rows = EMBEDDED.drill.filter(d => d.date >= from && d.date <= to);
+  const rev = {}, cat = {}, date = {}, plat = {}, revCat = {}, msgSet = new Set();
+  for(const d of rows){
+    const rk = d.reviewer + "||" + d.plat;
+    (rev[rk] = rev[rk] || { name:d.reviewer, plat:d.plat, cnt:0 }).cnt++;
+    cat[d.cat] = (cat[d.cat] || 0) + 1;
+    date[d.date] = (date[d.date] || 0) + 1;
+    plat[d.plat] = (plat[d.plat] || 0) + 1;
+    revCat[d.reviewer + "||" + d.cat] = (revCat[d.reviewer + "||" + d.cat] || 0) + 1;
+    if(d.ts) msgSet.add(d.ts);
+  }
+  return {
+    from, to, total: rows.length, msgs: msgSet.size,
+    byReviewer: Object.values(rev).sort((a,b)=>b.cnt-a.cnt),
+    byCategory: Object.entries(cat).map(([cat,cnt])=>({cat,cnt})).sort((a,b)=>b.cnt-a.cnt),
+    byDate: Object.entries(date).map(([date,cnt])=>({date,cnt})).sort((a,b)=>a.date.localeCompare(b.date)),
+    byPlatform: plat,
+    reviewerCategory: Object.entries(revCat).map(([k,cnt])=>{ const [reviewer,cat] = k.split("||"); return { reviewer, cat, cnt }; }),
+    drill: rows,
+  };
+}
+
+let DATA = null;               // 마지막 조회 결과
+let charts = {};
+const filt = { rev:"", cat:"", plat:"", q:"" };
+let drillSort = { key:"date", dir:-1 };
+let drillLimit = 200;
+
+/* ---------------- 차트 ---------------- */
+function drawBar(canvasId, labels, data, horizontal, onPick, tipExtra){
+  if(charts[canvasId]) charts[canvasId].destroy();
+  // 가로 막대는 항목 수에 따라 높이를 늘려 라벨이 겹치지 않게 한다
+  if(horizontal) $(canvasId).parentElement.style.height = Math.max(280, labels.length * 26 + 44) + "px";
+  charts[canvasId] = new Chart($(canvasId), {
+    type:"bar",
+    data:{ labels, datasets:[{ label:"오류 상품수", data, backgroundColor:"#1877f2", borderRadius:4, maxBarThickness:22 }] },
+    options:{ responsive:true, maintainAspectRatio:false, indexAxis: horizontal?"y":"x",
+      onClick:(e, els)=>{ if(onPick && els.length) onPick(labels[els[0].index]); },
+      onHover:(e, els)=>{ e.native.target.style.cursor = els.length ? "pointer" : "default"; },
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+        label:(c)=>` ${fmt(c.parsed[horizontal?"x":"y"])}건`,
+        afterBody:(items)=> tipExtra ? tipExtra(items[0].dataIndex) : [] } } },
+      // 가로 막대에서는 카테고리축이 y 이므로 두 축 모두 라벨을 생략하지 않게 한다
+      scales:{ x:{ ticks:{ autoSkip:false }, grid:{ color:"#eff1f3" } },
+               y:{ ticks:{ autoSkip:false, font:{ size:11.5 } }, grid:{ color:"#eff1f3" } } } }
+  });
+}
+function drawLine(canvasId, labels, data){
+  if(charts[canvasId]) charts[canvasId].destroy();
+  charts[canvasId] = new Chart($(canvasId), {
+    type:"line",
+    data:{ labels, datasets:[{ label:"오류 상품수", data, borderColor:"#1877f2", borderWidth:2, backgroundColor:"rgba(24,119,242,.12)", fill:true, tension:.25, pointRadius:3, pointHoverRadius:5 }] },
+    options:{ responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:"index", intersect:false },
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=>` ${fmt(c.parsed.y)}건` } } },
+      scales:{ y:{ grid:{ color:"#eff1f3" } }, x:{ grid:{ display:false } } } }
+  });
+}
+
+/* ---------------- 요약 표 ---------------- */
+function tableRev(rows){
+  if(!rows.length) return '<div class="empty">데이터 없음</div>';
+  let h = '<table><thead><tr><th>1차검수자</th><th>플랫폼</th><th class="num">오류 상품수</th></tr></thead><tbody>';
+  for(const r of rows) h += `<tr class="pick" data-rev="${esc(r.name)}" data-plat="${esc(r.plat)}"><td>${esc(r.name)}</td><td><span class="pill ${r.plat==="29cm"?"c":"m"}">${esc(r.plat)}</span></td><td class="num">${fmt(r.cnt)}</td></tr>`;
+  return h + "</tbody></table>";
+}
+function tableCat(rows){
+  if(!rows.length) return '<div class="empty">데이터 없음</div>';
+  const tot = rows.reduce((s,r)=>s+r.cnt,0) || 1;
+  let h = '<table><thead><tr><th>오류 항목</th><th class="num">건수</th><th class="num">비중</th></tr></thead><tbody>';
+  for(const r of rows) h += `<tr class="pick" data-cat="${esc(r.cat)}"><td>${esc(r.cat)}</td><td class="num">${fmt(r.cnt)}</td><td class="num">${(r.cnt/tot*100).toFixed(1)}%</td></tr>`;
+  return h + "</tbody></table>";
+}
+
+/* ---------------- 6. 검수자 × 항목 교차 ---------------- */
+function crossModel(){
+  const revs = new Map(), catTot = new Map();
+  for(const {reviewer, cat, cnt} of (DATA.reviewerCategory||[])){
+    if(!revs.has(reviewer)) revs.set(reviewer, { total:0, cats:new Map() });
+    const r = revs.get(reviewer);
+    r.total += cnt; r.cats.set(cat, (r.cats.get(cat)||0) + cnt);
+    catTot.set(cat, (catTot.get(cat)||0) + cnt);
+  }
+  const revList = [...revs.entries()].sort((a,b)=>b[1].total-a[1].total || a[0].localeCompare(b[0]));
+  const catList = [...catTot.entries()].sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0])).map(([cat,cnt])=>({cat,cnt}));
+  return { revList, catList };
+}
+function renderCross(){
+  const box = $("heatmap");
+  const { revList, catList } = crossModel();
+  if(!revList.length || !catList.length){ box.innerHTML = '<div class="empty">해당 기간에 집계된 오류가 없습니다.</div>'; renderSwatch(0,""); return; }
+
+  const mode = $("hmMode").value;
+  const topN = Number($("hmTop").value);
+  const shown = topN ? revList.slice(0, topN) : revList;
+  const hidden = revList.length - shown.length;
+
+  // 표시값 계산 후 최대값으로 색 단계를 잡는다 (모드별로 스케일 기준이 다르다)
+  const val = (rev, cat) => {
+    const raw = rev[1].cats.get(cat.cat) || 0;
+    if(!raw) return { raw:0, show:0 };
+    if(mode === "rowpct") return { raw, show: raw / rev[1].total * 100 };
+    if(mode === "colpct") return { raw, show: raw / cat.cnt * 100 };
+    return { raw, show: raw };
+  };
+  let max = 0;
+  for(const rev of shown) for(const cat of catList) max = Math.max(max, val(rev, cat).show);
+  const isPct = mode !== "cnt";
+  const disp = (v) => isPct ? (v >= 10 ? Math.round(v) + "%" : v.toFixed(1) + "%") : fmt(v);
+
+  let h = '<table class="hm"><thead><tr><th class="corner">검수자 ↓ · 항목 →</th>';
+  for(const c of catList) h += `<th data-cat="${esc(c.cat)}" title="${esc(c.cat)} · 합계 ${fmt(c.cnt)}건">${esc(c.cat)}</th>`;
+  h += '<th class="tot">합계</th></tr></thead><tbody>';
+
+  for(const rev of shown){
+    h += `<tr><th class="rowh" data-rev="${esc(rev[0])}" title="${esc(rev[0])} · 합계 ${fmt(rev[1].total)}건">${esc(rev[0])}</th>`;
+    for(const c of catList){
+      const { raw, show } = val(rev, c);
+      if(!raw){ h += '<td class="cell z">·</td>'; continue; }
+      const i = rampIndex(show, max);
+      const tip = `${rev[0]} · ${c.cat} · ${fmt(raw)}건 (검수자 내 ${(raw/rev[1].total*100).toFixed(1)}%, 항목 내 ${(raw/c.cnt*100).toFixed(1)}%)`;
+      h += `<td class="cell" style="background:${RAMP[i]};color:${RAMP_INK[i]}" data-rev="${esc(rev[0])}" data-cat="${esc(c.cat)}" title="${esc(tip)}">${disp(show)}</td>`;
+    }
+    h += `<td class="tot">${fmt(rev[1].total)}</td></tr>`;
+  }
+  // 항목 합계 행
+  h += '<tr class="totrow"><th class="rowh sum">합계</th>';
+  for(const c of catList) h += `<td class="tot" data-cat="${esc(c.cat)}">${fmt(c.cnt)}</td>`;
+  h += `<td class="tot">${fmt(catList.reduce((s,c)=>s+c.cnt,0))}</td></tr>`;
+  h += "</tbody></table>";
+  if(hidden > 0) h += `<div class="muted" style="padding:8px 2px 0">오류량 상위 ${shown.length}명만 표시 · ${hidden}명 숨김 (표시 옵션에서 전체 보기)</div>`;
+
+  box.innerHTML = h;
+  renderSwatch(max, isPct ? "%" : "건");
+
+  box.querySelectorAll("td.cell:not(.z)").forEach(td => td.addEventListener("click", () => {
+    setFilter({ rev: td.dataset.rev, cat: td.dataset.cat });
+  }));
+  box.querySelectorAll("th.rowh[data-rev]").forEach(th => th.addEventListener("click", () => setFilter({ rev: th.dataset.rev, cat:"" })));
+  box.querySelectorAll("thead th[data-cat], td.tot[data-cat]").forEach(el => el.addEventListener("click", () => setFilter({ rev:"", cat: el.dataset.cat })));
+}
+function renderSwatch(max, unit){
+  $("hmSwatch").innerHTML = RAMP.map(c => `<i style="background:${c}"></i>`).join("");
+  $("hmLegendLo").textContent = "적음";
+  $("hmLegendHi").textContent = max ? `많음 (최대 ${unit === "%" ? Math.round(max) + "%" : fmt(max) + "건"})` : "많음";
+}
+
+/* ---------------- 7. 원본 드릴다운 ---------------- */
+function fillSelects(){
+  const revs = [...new Set((DATA.drill||[]).map(d=>d.reviewer))].sort((a,b)=>a.localeCompare(b));
+  const cats = (DATA.byCategory||[]).map(c=>c.cat);
+  $("fRev").innerHTML = '<option value="">검수자 전체</option>' + revs.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join("");
+  $("fCat").innerHTML = '<option value="">항목 전체</option>' + cats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  $("fRev").value = filt.rev; $("fCat").value = filt.cat; $("fPlat").value = filt.plat; $("fQ").value = filt.q;
+}
+function filteredDrill(){
+  const q = filt.q.trim().toLowerCase();
+  let rows = (DATA.drill||[]).filter(d =>
+    (!filt.rev || d.reviewer === filt.rev) &&
+    (!filt.cat || d.cat === filt.cat) &&
+    (!filt.plat || d.plat === filt.plat) &&
+    (!q || d.uid.includes(q) || (d.reason||"").toLowerCase().includes(q))
+  );
+  const k = drillSort.key, dir = drillSort.dir;
+  rows = rows.slice().sort((a,b)=>{
+    const x = String(a[k]||""), y = String(b[k]||"");
+    return (x === y ? String(a.uid).localeCompare(String(b.uid)) : x.localeCompare(y, "ko")) * dir;
+  });
+  return rows;
+}
+const DRILL_COLS = [["date","날짜"],["reviewer","1차검수자"],["plat","플랫폼"],["cat","오류 항목"],["uid","UID"],["reason","수정사유(원본)"]];
+function renderDrill(){
+  const rows = filteredDrill();
+  const total = (DATA.drill||[]).length;
+  $("drillCount").textContent = total ? `${fmt(rows.length)}건 표시 / 전체 ${fmt(total)}건` : "";
+
+  // 필터 칩
+  const chips = [];
+  if(filt.rev) chips.push(["rev","검수자",filt.rev]);
+  if(filt.cat) chips.push(["cat","항목",filt.cat]);
+  if(filt.plat) chips.push(["plat","플랫폼",filt.plat]);
+  if(filt.q) chips.push(["q","검색",filt.q]);
+  $("drillChips").innerHTML = chips.map(([k,label,v]) =>
+    `<span class="chip">${label} <b>${esc(v)}</b><span data-clear="${k}" title="이 필터 해제">×</span></span>`).join("");
+  $("drillChips").style.margin = chips.length ? "0 0 10px" : "0";
+  $("drillChips").querySelectorAll("[data-clear]").forEach(x => x.addEventListener("click", () => setFilter({ [x.dataset.clear]:"" }, false)));
+
+  if(!rows.length){
+    $("drillTbl").innerHTML = `<div class="empty">${total ? "필터에 해당하는 원본이 없습니다." : "해당 기간에 집계된 오류가 없습니다."}</div>`;
+    return;
+  }
+  const head = DRILL_COLS.map(([k,label]) =>
+    `<th data-k="${k}"${k==="uid"?' class="num"':""}>${label}${drillSort.key===k?` <span class="ar">${drillSort.dir>0?"▲":"▼"}</span>`:""}</th>`).join("");
+  const page = rows.slice(0, drillLimit);
+  let body = "";
+  for(const d of page){
+    body += `<tr><td class="dt">${esc(d.date)}</td><td>${esc(d.reviewer)}</td>`
+      + `<td><span class="pill ${d.plat==="29cm"?"c":"m"}">${esc(d.plat)}</span></td>`
+      + `<td>${esc(d.cat)}</td><td class="uid">${esc(d.uid)}</td>`
+      + `<td class="reason">${esc(d.reason) || '<span class="muted">(사유 없음)</span>'}</td></tr>`;
+  }
+  let h = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  if(rows.length > page.length) h += `<div class="more"><button id="drillMore">${fmt(rows.length - page.length)}건 더 보기</button></div>`;
+  $("drillTbl").innerHTML = h;
+
+  $("drillTbl").querySelectorAll("thead th").forEach(th => th.addEventListener("click", () => {
+    const k = th.dataset.k;
+    drillSort = { key:k, dir: drillSort.key === k ? -drillSort.dir : (k === "date" ? -1 : 1) };
+    renderDrill();
+  }));
+  const more = $("drillMore");
+  if(more) more.addEventListener("click", () => { drillLimit += 200; renderDrill(); });
+}
+function setFilter(patch, scroll){
+  Object.assign(filt, patch);
+  drillLimit = 200;
+  $("fRev").value = filt.rev; $("fCat").value = filt.cat; $("fPlat").value = filt.plat; $("fQ").value = filt.q;
+  renderDrill();
+  // 차트·히트맵·요약표에서 넘어온 경우에만 원본 목록으로 이동 (패널 안에서 바꿀 때는 그대로)
+  if(scroll !== false) $("drillPanel").scrollIntoView({ behavior:"smooth", block:"start" });
+}
+function downloadCsv(){
+  const rows = filteredDrill();
+  if(!rows.length) return;
+  const cell = (v) => `"${String(v == null ? "" : v).replace(/"/g,'""')}"`;
+  const lines = [DRILL_COLS.map(([,l])=>cell(l)).join(",")];
+  for(const d of rows) lines.push(DRILL_COLS.map(([k])=>cell(d[k])).join(","));
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type:"text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `2차검수오류_${DATA.from}_${DATA.to}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ---------------- 조회 ---------------- */
+function renderAll(){
+  const d = DATA;
+  const tot = d.total || 0;
+  const m = d.byPlatform["무신사"]||0, c = d.byPlatform["29cm"]||0;
+  $("c-total").textContent = fmt(tot);
+  $("c-msgs").textContent = fmt(d.msgs);
+  $("c-m").textContent = fmt(m); $("c-c").textContent = fmt(c);
+  const days = d.byDate.length || 1;
+  $("n-total").textContent = `일평균 ${(tot/days).toFixed(1)}건 · ${d.byDate.length}일`;
+  $("n-msgs").textContent = d.msgs ? `메시지당 ${(tot/d.msgs).toFixed(1)}개 상품` : "";
+  $("n-m").textContent = tot ? `${(m/tot*100).toFixed(1)}%` : "";
+  $("n-c").textContent = tot ? `${(c/tot*100).toFixed(1)}%` : "";
+
+  // 수정요청이 없던 날도 0으로 채워, 날짜 간격이 실제와 다르게 보이지 않게 한다
+  const cntByDate = new Map(d.byDate.map(x=>[x.date, x.cnt]));
+  const dayAxis = [];
+  for(let dt = d.from; dt <= d.to && dayAxis.length < 400; dt = addDays(dt, 1)) dayAxis.push(dt);
+  const axis = dayAxis.length > 1 ? dayAxis : d.byDate.map(x=>x.date);
+  drawLine("chartDate", axis, axis.map(x=>cntByDate.get(x) || 0));
+  // byReviewer 는 이름×플랫폼으로 나뉘어 있어 그래프에서는 이름 기준으로 합친다 (같은 라벨이 두 번 찍히는 문제 방지)
+  const revAgg = new Map();
+  for(const r of d.byReviewer){
+    if(!revAgg.has(r.name)) revAgg.set(r.name, { name:r.name, cnt:0, "무신사":0, "29cm":0 });
+    const a = revAgg.get(r.name); a.cnt += r.cnt; a[r.plat] = (a[r.plat]||0) + r.cnt;
+  }
+  const topRev = [...revAgg.values()].sort((a,b)=>b.cnt-a.cnt).slice(0,15);
+  drawBar("chartRev", topRev.map(x=>x.name), topRev.map(x=>x.cnt), true,
+    (name)=>setFilter({ rev:name, cat:"", plat:"" }),
+    (i)=>[`무신사 ${fmt(topRev[i]["무신사"])}건 · 29cm ${fmt(topRev[i]["29cm"])}건`]);
+  const topCat = d.byCategory.slice(0,15);
+  drawBar("chartCat", topCat.map(x=>x.cat), topCat.map(x=>x.cnt), true, (cat)=>setFilter({ rev:"", cat }));
+  $("catNote").textContent = d.byCategory.length > topCat.length
+    ? `상위 ${topCat.length}개 · 전체 ${d.byCategory.length}개는 아래 표` : "";
+
+  $("tblRev").innerHTML = tableRev(d.byReviewer);
+  $("tblCat").innerHTML = tableCat(d.byCategory);
+  $("tblRev").querySelectorAll("tr.pick").forEach(tr => tr.addEventListener("click", ()=>setFilter({ rev:tr.dataset.rev, cat:"", plat:tr.dataset.plat })));
+  $("tblCat").querySelectorAll("tr.pick").forEach(tr => tr.addEventListener("click", ()=>setFilter({ rev:"", cat:tr.dataset.cat })));
+
+  fillSelects();
+  renderCross();
+  renderDrill();
+}
+
+async function run(fresh){
+  const from = $("from").value, to = $("to").value;
+  if(!from || !to){ $("status").textContent = "기간을 선택하세요."; return; }
+
+  // 정적 모드: 서버 없이 박혀 있는 데이터로 즉시 집계
+  if(EMBEDDED){
+    DATA = aggregateLocal(from, to);
+    renderAll();
+    $("status").textContent = `${from} ~ ${to} · 총 ${fmt(DATA.total)}건`;
+    return;
+  }
+
+  $("status").textContent = "불러오는 중…"; $("errBox").innerHTML = "";
+  try{
+    const r = await fetch(`/api/errors?from=${from}&to=${to}${fresh ? "&fresh=1" : ""}`);
+    // 세션이 끊겼으면 구글 로그인으로 보낸다
+    if(r.status === 401){ location.href = "/auth/google"; return; }
+    const d = await r.json();
+    if(d.error) throw new Error(d.error);
+    DATA = d;
+    renderAll();
+    const at = d.generatedAt ? new Date(d.generatedAt).toLocaleTimeString("ko-KR",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
+    $("status").textContent = `${from} ~ ${to} · 총 ${fmt(d.total)}건` + (at ? ` · ${d.cached ? "캐시" : "갱신"} ${at}` : "");
+  }catch(e){
+    $("status").textContent = "";
+    $("errBox").innerHTML = `<div class="err">불러오기 실패: ${esc(e.message)}. 봇 토큰과 채널 초대 상태를 확인하세요. (<a href="/api/health" target="_blank">/api/health</a> 로 점검)</div>`;
+  }
+}
+
+document.querySelectorAll(".quick a").forEach(a=>a.addEventListener("click",()=>{
+  document.querySelectorAll(".quick a").forEach(x=>x.classList.remove("on"));
+  a.classList.add("on");
+  const q=a.dataset.q;
+  if(q === "all" && EMBEDDED){ $("from").value = EMBEDDED.from; $("to").value = EMBEDDED.to; run(); return; }
+  const t = EMBEDDED ? EMBEDDED.to : todayKST();   // 정적 모드의 기준일은 스냅샷 마지막 날
+  $("to").value=t; $("from").value = q==="today"? t : addDays(t, -(parseInt(q)-1));
+  run();
+}));
+$("run").addEventListener("click", ()=>run());
+$("refresh").addEventListener("click", ()=>run(true));
+$("hmMode").addEventListener("change", renderCross);
+$("hmTop").addEventListener("change", renderCross);
+$("fRev").addEventListener("change", ()=>setFilter({ rev:$("fRev").value }, false));
+$("fCat").addEventListener("change", ()=>setFilter({ cat:$("fCat").value }, false));
+$("fPlat").addEventListener("change", ()=>setFilter({ plat:$("fPlat").value }, false));
+$("fQ").addEventListener("input", ()=>{ filt.q = $("fQ").value; drillLimit = 200; renderDrill(); });
+$("fReset").addEventListener("click", ()=>setFilter({ rev:"", cat:"", plat:"", q:"" }, false));
+$("csv").addEventListener("click", downloadCsv);
+
+if(EMBEDDED){
+  // ---- 정적 모드 (GitHub Pages 등) ----
+  $("refresh").hidden = true;                      // 서버가 없으므로 새로고침 불가
+  $("qAll").hidden = false;
+  const at = EMBEDDED.generatedAt ? new Date(EMBEDDED.generatedAt).toLocaleString("ko-KR",{hour12:false}) : "";
+  $("banner").innerHTML = `<div class="snap">이 페이지는 <b>${esc(EMBEDDED.from)} ~ ${esc(EMBEDDED.to)}</b> 슬랙 데이터를 담은 정적 스냅샷입니다`
+    + (at ? ` · 데이터 기준 <b>${esc(at)}</b>` : "") + `. 이후 올라온 수정요청은 다음 갱신 때 반영됩니다.</div>`;
+  document.querySelector('.quick a[data-q="all"]').classList.add("on");
+  $("from").value = EMBEDDED.from; $("to").value = EMBEDDED.to;
+  run();
+} else {
+  // ---- 서버 모드 ----
+  fetch("/api/me").then(r=>r.ok?r.json():null).then(me=>{
+    if(me && me.email) $("who").innerHTML = ` · ${esc(me.email)} <a href="/logout">로그아웃</a>`;
+  }).catch(()=>{});
+  document.querySelector('.quick a[data-q="today"]').classList.add("on");
+  $("to").value = todayKST(); $("from").value = todayKST();
+  run();
+}
+</script>
+</body>
+</html>
