@@ -199,7 +199,19 @@ function rampIndex(v, max){
 
 // 정적 대시보드(GitHub Pages)에서는 window.EMBEDDED 에 스냅샷이 박혀 있고 서버 호출을 하지 않는다.
 // 서버 모드(/api/errors)와 정적 모드가 같은 화면 코드를 공유한다.
-const EMBEDDED = window.EMBEDDED || null;
+const EMBEDDED = expandEmbedded(window.EMBEDDED);
+
+// 스냅샷은 사전 압축된 형태({dict, rows})로 들어온다. 화면 코드가 쓰는 원본 행 배열로 되돌린다.
+function expandEmbedded(e){
+  if(!e) return null;
+  if(e.drill) return e;            // 압축하지 않은 형태도 그대로 지원
+  const d = e.dict;
+  e.drill = e.rows.map(r => ({
+    ts: d.ts[r[0]], date: d.date[r[1]], reviewer: d.rev[r[2]],
+    plat: d.plat[r[3]], cat: d.cat[r[4]], uid: r[5], reason: d.reason[r[6]],
+  }));
+  return e;
+}
 
 // 정적 모드: 박혀 있는 원본 행(drill)에서 서버 응답과 동일한 형태를 다시 만든다
 function aggregateLocal(from, to){

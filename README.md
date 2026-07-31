@@ -27,16 +27,22 @@ A가 훨씬 단순하고, 사내에 이미 같은 방식의 대시보드가 있�
 만드는 과정은 3단계다.
 
 1. **슬랙에서 메시지 수집** — 봇 토큰으로 채널 메시지를 읽는다
-2. **집계** — `server.js` 의 검증된 파싱·분류 규칙으로 UID·검수자·오류항목을 뽑아 `snapshot.json` 생성
+2. **집계** — `lib/aggregate.js` 의 검증된 파싱·분류 규칙으로 UID·검수자·오류항목을 뽑아 `snapshot.json` 생성
 3. **조립** — 템플릿(`public/index.html`) + Chart.js + 스냅샷을 합쳐 한 개 파일로 만든다
 
-3단계는 Node 없이 바로 실행할 수 있다.
+평소에는 **GitHub Actions 가 매일 08:00 KST 에 1~3단계를 자동 수행**한다(아래 "자동 갱신"). 즉시 갱신하려면 Actions 탭에서 수동 실행하면 된다.
+
+세 단계를 한 번에 실행하는 명령(Actions 가 쓰는 것과 같다. Node 18+ 필요):
+
+```bash
+node scripts/build.js
+```
+
+Node 없이 3단계(조립)만 다시 하려면:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build-dashboard.ps1 -DataPath .\snapshot.json
 ```
-
-1~2단계는 현재 Claude Code가 대신 수행한다(로컬에 Node가 없어 자동화 스크립트를 돌릴 수 없기 때문). 매일 자동 갱신이 필요하면 GitHub Actions로 1~3단계를 돌리는 방법이 있다 — 아래 "자동 갱신" 참고.
 
 ### GitHub Pages 에 올리기
 
@@ -59,9 +65,34 @@ https://<계정>.github.io/<저장소>/dashboard.html
 
 **GitHub Pages 는 저장소가 private 이어도 페이지 자체는 인터넷에 공개된다**(비공개 Pages는 GitHub Enterprise 기능). 이 대시보드에는 **1차검수자 실명과 개인별 오류 건수**가 들어 있어, 링크를 아는 사람은 누구나 볼 수 있는 상태가 된다. 사내 인원만 보게 하려면 위 표의 B 방식(구글 로그인)을 쓰거나, 이름을 마스킹해야 한다.
 
-### 자동 갱신 (선택)
+### 자동 갱신 (매일 08:00 KST)
 
-GitHub Actions 로 매일 자동 갱신할 수 있다. Actions 실행 환경에는 Node가 있으므로 **로컬에 Node를 설치하지 않아도 된다**. 슬랙 토큰은 저장소 Settings → Secrets 에 넣는다. 아직 구성하지 않았다.
+`.github/workflows/refresh.yml` 이 매일 슬랙에서 다시 읽어 대시보드를 갱신하고 커밋·배포한다. Actions 실행 환경에 Node가 있으므로 **로컬에 Node를 설치하지 않아도 된다**.
+
+**필요한 설정 (한 번만)**: 저장소 → Settings → Secrets and variables → Actions → **New repository secret**
+
+| 이름 | 값 |
+|---|---|
+| `SLACK_BOT_TOKEN` | `xoxb-...` 슬랙 봇 토큰 |
+
+이 시크릿이 없으면 워크플로가 실패한다. 선택적으로 Variables 에 `CHANNEL_ID`(기본 `C02CT82KYP8`), `DAYS`(수집 기간, 기본 90) 를 넣을 수 있다.
+
+동작:
+
+1. 매일 23:00 UTC = **08:00 KST** 에 실행 (`cron: "0 23 * * *"`). Actions 탭에서 **Run workflow** 로 즉시 수동 실행도 된다.
+2. `node scripts/build.js` → 슬랙 수집 → 집계 → `snapshot.json` + `docs/dashboard.html` 재생성
+3. 내용이 바뀌었으면 커밋·push 하고, Pages 재빌드를 API로 직접 요청한다(기본 토큰 push 는 Pages 재빌드를 자동으로 걸지 않을 수 있어서다)
+4. 바뀐 게 없으면 커밋하지 않는다
+
+알아둘 점:
+
+- GitHub 의 예약 실행은 정시보다 **수 분~수십 분 늦어질 수 있다**(GitHub 부하에 따름). 정확한 정시 실행이 필요한 성격의 작업은 아니라 그대로 두었다.
+- 저장소에 60일간 아무 활동이 없으면 GitHub 이 예약 워크플로를 자동 비활성화한다. 매일 커밋이 생기므로 실제로는 문제되지 않는다.
+- 매일 대시보드 파일(약 320KB)이 커밋되므로 저장소가 조금씩 커진다. 부담되면 `DAYS` 를 줄이거나, Pages Source 를 "GitHub Actions" 로 바꿔 커밋 없이 배포하는 방식으로 전환하면 된다.
+
+### 데이터 크기
+
+스냅샷은 반복되는 사유·이름·날짜를 사전(dictionary)으로 빼서 저장한다. 같은 1,837행 기준 원본 313KB → **69KB**(22%), 대시보드 파일 722KB → **321KB**. 화면 코드가 로드 시 원본 형태로 복원하며, 압축하지 않은 스냅샷도 그대로 읽을 수 있다.
 
 ## 빠른 시작 (로컬)
 
@@ -196,19 +227,22 @@ git push -u origin main
 ## 구조
 
 ```
-public/index.html     화면 템플릿 (7개 뷰). 정적 모드와 서버 모드를 겸한다
-docs/dashboard.html   ★ 산출물: 자체 완결 정적 대시보드 (GitHub Pages 용)
-build-dashboard.ps1   조립 스크립트 (템플릿 + Chart.js + 스냅샷 -> 한 개 파일)
-snapshot.json         데이터 스냅샷 (수집·집계 결과)
-vendor/chart.umd.js   인라인용 Chart.js 원본
-server.js             슬랙 수집·파싱·집계 규칙 + (B방식용) API·구글 로그인
-render.yaml           (B방식용) Render 배포 설정
-기획서.md             기획/규칙 문서
-.env / .env.example   슬랙 봇 토큰 등. .env 는 git 에 올라가지 않는다
+lib/aggregate.js            ★ 검증된 수집·파싱·분류 규칙 (단일 원천)
+public/index.html           화면 템플릿 (7개 뷰). 정적 모드와 서버 모드를 겸한다
+docs/dashboard.html         ★ 산출물: 자체 완결 정적 대시보드 (GitHub Pages 가 서비스)
+scripts/build.js            수집 -> 집계 -> 조립 전체 생성 (Actions 가 매일 실행)
+.github/workflows/refresh.yml  매일 08:00 KST 자동 갱신
+build-dashboard.ps1         조립만 다시 하는 Node 불필요 스크립트
+snapshot.json               데이터 스냅샷 (사전 압축)
+vendor/chart.umd.js         인라인용 Chart.js 원본
+server.js                   (B방식용) API 서버 + 구글 로그인. 집계는 lib 를 호출
+render.yaml                 (B방식용) Render 배포 설정
+기획서.md                   기획/규칙 문서
+.env / .env.example         슬랙 봇 토큰 등. .env 는 git 에 올라가지 않는다
 ```
 
 `public/index.html` 은 `window.EMBEDDED` 가 있으면 박혀 있는 데이터로 집계하고(정적 모드), 없으면 `/api/errors` 를 호출한다(서버 모드). 화면 코드는 한 벌만 유지된다.
 
-오류 항목 분류 규칙(`server.js` 의 `CATS`)은 두 방식이 공유한다.
+오류 항목 분류 규칙(`lib/aggregate.js` 의 `CATS`)도 한 곳에만 있고 정적·서버 양쪽이 공유한다. 규칙을 바꾸려면 이 파일만 고치면 된다.
 
 의존성은 `express`, `dotenv` 둘뿐이다. 로그인은 외부 라이브러리 없이 Node 내장 기능으로 구현했다.

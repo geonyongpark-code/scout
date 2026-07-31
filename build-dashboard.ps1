@@ -30,6 +30,7 @@ $data = [IO.File]::ReadAllText($DataPath) | ConvertFrom-Json
 if (-not $data.generatedAt) { $data | Add-Member -NotePropertyName generatedAt -NotePropertyValue (Get-Date).ToString("o") -Force }
 
 # 기간을 실제 데이터가 있는 범위로 좁힌다. (조회 기간 앞부분이 비어 있으면 빈 구간만 길어진다)
+# 사전 압축된 스냅샷(scripts/build.js 산출물)은 이미 좁혀져 있으므로 건드리지 않는다.
 if ($data.drill -and $data.drill.Count -gt 0) {
   $dates = $data.drill | ForEach-Object { $_.date } | Sort-Object
   $data.from = $dates[0]
@@ -50,7 +51,7 @@ $outDir = Split-Path -Parent $out
 if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Force $outDir | Out-Null }
 [IO.File]::WriteAllText($out, $html, (New-Object Text.UTF8Encoding $false))
 
-$rows = if ($data.drill) { $data.drill.Count } else { 0 }
+$rows = if ($data.drill) { $data.drill.Count } elseif ($data.rows) { $data.rows.Count } else { 0 }
 "생성 완료: $out"
 "  기간 $($data.from) ~ $($data.to) · 원본 $rows 행 · 크기 $([Math]::Round((Get-Item $out).Length / 1KB)) KB"
 "  외부 요청 0 (Chart.js·데이터 모두 인라인)"
