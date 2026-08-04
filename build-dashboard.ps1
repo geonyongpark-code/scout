@@ -29,12 +29,12 @@ $data = [IO.File]::ReadAllText($DataPath) | ConvertFrom-Json
 # 스냅샷 생성 시각을 기록 (화면 상단 배너에 표시된다)
 if (-not $data.generatedAt) { $data | Add-Member -NotePropertyName generatedAt -NotePropertyValue (Get-Date).ToString("o") -Force }
 
-# 기간을 실제 데이터가 있는 범위로 좁힌다. (조회 기간 앞부분이 비어 있으면 빈 구간만 길어진다)
-# 사전 압축된 스냅샷(scripts/build.js 산출물)은 이미 좁혀져 있으므로 건드리지 않는다.
+# 시작일만 실제 데이터가 있는 날로 좁힌다. 종료일은 수집 시점을 그대로 둔다
+# (그래야 "수집했지만 수정요청이 0건인 날"이 그래프에 보인다).
+# 사전 압축된 스냅샷(scripts/build.js 산출물)은 이미 정리되어 있으므로 건드리지 않는다.
 if ($data.drill -and $data.drill.Count -gt 0) {
   $dates = $data.drill | ForEach-Object { $_.date } | Sort-Object
   $data.from = $dates[0]
-  $data.to = $dates[-1]
 }
 $json = $data | ConvertTo-Json -Depth 6 -Compress
 

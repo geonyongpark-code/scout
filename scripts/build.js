@@ -45,10 +45,11 @@ const put = (k, v) => {
 };
 const rows = r.drill.map((d) => [put("ts", d.ts), put("date", d.date), put("rev", d.reviewer), put("plat", d.plat), put("cat", d.cat), d.uid, put("reason", d.reason)]);
 
-// 기간을 실제 데이터가 있는 범위로 좁힌다 (앞부분이 비어 있으면 빈 구간만 길어진다)
+// 시작일만 실제 데이터가 있는 날로 좁힌다(앞부분이 비어 있으면 빈 구간만 길어진다).
+// 종료일은 수집 시점(오늘)으로 둔다 — 그래야 "수집했지만 수정요청이 0건인 날"이 그래프에 보인다.
 const dates = dict.date.slice().sort();
 const snapshot = {
-  from: dates[0], to: dates[dates.length - 1],
+  from: dates[0], to,
   total: r.total, msgs: r.msgs,
   generatedAt: new Date().toISOString(),
   dict, rows,

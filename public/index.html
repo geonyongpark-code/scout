@@ -468,7 +468,7 @@ function renderAll(){
   const cntByDate = new Map(d.byDate.map(x=>[x.date, x.cnt]));
   const dayAxis = [];
   for(let dt = d.from; dt <= d.to && dayAxis.length < 400; dt = addDays(dt, 1)) dayAxis.push(dt);
-  const axis = dayAxis.length > 1 ? dayAxis : d.byDate.map(x=>x.date);
+  const axis = dayAxis.length ? dayAxis : d.byDate.map(x=>x.date);
   const byDatePlat = new Map();
   for(const r of d.drill){
     if(!byDatePlat.has(r.date)) byDatePlat.set(r.date, { "무신사":0, "29cm":0 });
@@ -513,7 +513,10 @@ async function run(fresh){
   if(EMBEDDED){
     DATA = aggregateLocal(from, to);
     renderAll();
-    $("status").textContent = `${from} ~ ${to} · 총 ${fmt(DATA.total)}건`;
+    // 0건일 때는 "데이터가 없는 것"과 "그 기간에 수정요청이 없었던 것"을 구분해 알려준다
+    $("status").textContent = DATA.total
+      ? `${from} ~ ${to} · 총 ${fmt(DATA.total)}건`
+      : `${from} ~ ${to} · 이 기간에는 수정요청이 없습니다 (수집 범위 ${EMBEDDED.from} ~ ${EMBEDDED.to})`;
     return;
   }
 
@@ -539,7 +542,7 @@ document.querySelectorAll(".quick a").forEach(a=>a.addEventListener("click",()=>
   a.classList.add("on");
   const q=a.dataset.q;
   if(q === "all" && EMBEDDED){ $("from").value = EMBEDDED.from; $("to").value = EMBEDDED.to; run(); return; }
-  const t = EMBEDDED ? EMBEDDED.to : todayKST();   // 정적 모드의 기준일은 스냅샷 마지막 날
+  const t = todayKST();   // 정적 모드에서도 "오늘"은 실제 오늘이다 (해당 날짜에 수정요청이 없으면 0건으로 표시)
   $("to").value=t; $("from").value = q==="today"? t : addDays(t, -(parseInt(q)-1));
   run();
 }));
