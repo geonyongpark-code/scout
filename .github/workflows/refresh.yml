@@ -2,8 +2,9 @@ name: 대시보드 자동 갱신
 
 on:
   schedule:
-    # 매일 08:00 KST (= 23:00 UTC 전날). GitHub Actions 의 cron 은 UTC 기준이다.
-    - cron: "0 23 * * *"
+    # 매일 08:17 KST (= 23:17 UTC 전날). GitHub Actions 의 cron 은 UTC 기준이다.
+    # 정각(:00)은 예약 작업이 몰려 지연·누락이 잦으므로 일부러 몇 분 비켜 두었다.
+    - cron: "17 23 * * *"
   workflow_dispatch: # Actions 탭에서 수동 실행도 가능
 
 permissions:

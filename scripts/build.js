@@ -52,6 +52,10 @@ const snapshot = {
   from: dates[0], to,
   total: r.total, msgs: r.msgs,
   generatedAt: new Date().toISOString(),
+  // 대시보드의 '지금 갱신 실행' 버튼이 열 주소 (Actions 에서 실행될 때 저장소 정보가 들어온다)
+  workflowUrl: process.env.GITHUB_REPOSITORY
+    ? `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/workflows/refresh.yml`
+    : undefined,
   dict, rows,
 };
 const snapPath = path.join(root, "snapshot.json");

@@ -79,7 +79,7 @@ https://<계정>.github.io/<저장소>/dashboard.html
 
 동작:
 
-1. 매일 23:00 UTC = **08:00 KST** 에 실행 (`cron: "0 23 * * *"`). Actions 탭에서 **Run workflow** 로 즉시 수동 실행도 된다.
+1. 매일 23:17 UTC = **08:17 KST** 에 실행 (`cron: "17 23 * * *"`). 정각은 예약 작업이 몰려 지연·누락이 잦아 몇 분 비켜 두었다. Actions 탭에서 **Run workflow** 로 즉시 수동 실행도 된다.
 2. `node scripts/build.js` → 슬랙 수집 → 집계 → `snapshot.json` + `docs/dashboard.html` 재생성
 3. 내용이 바뀌었으면 커밋·push 하고, Pages 재빌드를 API로 직접 요청한다(기본 토큰 push 는 Pages 재빌드를 자동으로 걸지 않을 수 있어서다)
 4. 바뀐 게 없으면 커밋하지 않는다
